@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "LeetCode Companion (Dev Scaffold)",
+  "version": "0.0.1",
+  "description": "Detects Run/Submit clicks, editor state, and result status on LeetCode problem pages. Dev scaffold - logs to console only, no network calls.",
+  "content_scripts": [
+    {
+      "matches": ["https://leetcode.com/problems/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["page-bridge.js"],
+      "matches": ["https://leetcode.com/*"]
+    }
+  ]
+}
