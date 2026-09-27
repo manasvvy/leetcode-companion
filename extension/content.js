@@ -23,6 +23,17 @@
   const SUBMIT_SELECTOR = '[data-e2e-locator="console-submit-button"]';
   const RESULT_SELECTOR = '[data-e2e-locator="submission-result"]';
   const RUN_SELECTOR = '[data-e2e-locator="console-run-button"]';
+  // Confirmed via live diagnostic: non-Accepted verdicts do NOT get the
+  // data-e2e-locator="submission-result" treatment — LeetCode renders them
+  // as a red-colored <h3> heading instead (see findRedVerdictElement below).
+  const NON_ACCEPTED_VERDICTS = [
+    'Wrong Answer',
+    'Time Limit Exceeded',
+    'Runtime Error',
+    'Memory Limit Exceeded',
+    'Output Limit Exceeded',
+    'Compile Error',
+  ];
 
   // Per-"problem session" state. Reset on SPA navigation.
   let state = null;
@@ -40,13 +51,6 @@
 
   function teardown() {
     if (!state) return;
-    // DIAGNOSTIC ONLY — confirms the suspected race: are we disconnecting
-    // a result-watching observer that never got to fire?
-    if (state.observers.length > 0 && !state.lastResult) {
-      console.log(
-        `${LOG_PREFIX}[DIAG] teardown(): disconnecting ${state.observers.length} observer(s) with NO result observed yet`
-      );
-    }
     state.observers.forEach((o) => {
       try {
         o.disconnect();
@@ -90,19 +94,36 @@
     }
   }
 
-  // After a Run/Submit, watch for the result. CONFIRMED via diagnostic:
-  // LeetCode renders it as `<span data-e2e-locator="submission-result">`.
-  // That element may already exist (stale from a previous run, just gets
-  // its text swapped) or get inserted fresh, so we don't need to guess
-  // which mutation shape happens — on any DOM change, just re-check what
-  // that element currently says.
+  // Non-Accepted verdicts (Wrong Answer, TLE, etc.) render as a red <h3>
+  // heading instead of the data-e2e-locator span — confirmed via live
+  // diagnostic. Matching on tag + a semantic color class (rather than the
+  // full Tailwind class string, which is brittle across theme/build
+  // changes) plus requiring the text to start with a known verdict keeps
+  // this narrow enough not to match an unrelated heading elsewhere.
+  function findRedVerdictElement() {
+    const headings = document.querySelectorAll('h3');
+    for (const h of headings) {
+      if (typeof h.className !== 'string' || !h.className.includes('text-red')) continue;
+      const text = (h.textContent || '').trim();
+      const verdict = NON_ACCEPTED_VERDICTS.find((v) => text.startsWith(v));
+      if (verdict) return verdict;
+    }
+    return null;
+  }
+
+  // After a Run/Submit, watch for the result. Two independent DOM shapes
+  // are checked, confirmed via live diagnostic: Accepted uses
+  // `<span data-e2e-locator="submission-result">`, while every other
+  // verdict uses a red `<h3>` heading with no such locator at all — an
+  // asymmetry in LeetCode's own markup, not something fixable with one
+  // selector. Either element may already exist (stale from a previous run)
+  // or get inserted fresh, so on any DOM change we just re-check both.
   function watchForResult(triggerAction) {
     const deadline = Date.now() + 30_000; // stop watching after 30s
 
     function reportIfPresent() {
-      const el = document.querySelector(RESULT_SELECTOR);
-      if (!el) return false;
-      const text = (el.textContent || '').trim();
+      const successEl = document.querySelector(RESULT_SELECTOR);
+      const text = successEl ? (successEl.textContent || '').trim() : findRedVerdictElement();
       if (!text) return false;
       const now = Date.now();
       // de-dupe: ignore repeat firing for the same result within 2s
@@ -281,95 +302,54 @@
   // ---------------------------------------------------------------------
   // LeetCode is a client-routed SPA — plain page loads won't fire between
   // problems, so `document_idle` alone isn't enough. We poll location.href
-  // (cheapest reliable option without hooking the app's own router) and
-  // reinitialize per-problem state on change.
+  // (cheapest reliable option without hooking the app's own router).
+  //
+  // CONFIRMED via live diagnostic: submitting navigates the URL from
+  // /problems/<slug>/ to /problems/<slug>/submissions/<id>/ — a sub-route
+  // of the SAME problem, not a new one. Comparing full href (as before)
+  // treated that as "new page" and tore down the in-flight result
+  // observer before it could fire, which is exactly why Wrong Answer
+  // (whose heavier render loses the race against our 1s poll) was being
+  // missed while faster-rendering Accepted sometimes wasn't. Comparing the
+  // problem *slug* instead means we only reinit when the problem actually
+  // changes, letting the result observer/idle timer survive that nav.
   let lastUrl = null;
+  let lastSlug = null;
+
+  function getProblemSlug(url) {
+    const m = /^https:\/\/leetcode\.com\/problems\/([^/]+)/.exec(url);
+    return m ? m[1] : null;
+  }
 
   function initForCurrentPage() {
     teardown();
     if (!isProblemPage()) {
       console.log(`${LOG_PREFIX} not a problem page, idling`);
+      lastSlug = null;
       return;
     }
     lastUrl = location.href;
+    lastSlug = getProblemSlug(location.href);
     state = freshState();
     console.log(`${LOG_PREFIX} initialized for`, location.href);
     injectPageBridge();
     attachIdleTracking();
     ensurePanel();
-
-    // DIAGNOSTIC ONLY — checks whether RESULT_SELECTOR's element/text is
-    // actually present on a submission-detail sub-route, independent of
-    // whether any observer is currently attached. Tells us whether this is
-    // (a) our own observer being torn down before it fires, or (b) a
-    // different selector needed for this view. Doesn't change detection.
-    if (/\/submissions\//.test(location.href)) {
-      [300, 800, 1500, 3000].forEach((delay) => {
-        setTimeout(() => {
-          const el = document.querySelector(RESULT_SELECTOR);
-          console.log(
-            `${LOG_PREFIX}[DIAG] +${delay}ms RESULT_SELECTOR check:`,
-            el ? JSON.stringify(el.textContent.trim()) : 'not found'
-          );
-          diagFindWrongAnswerText(delay);
-        }, delay);
-      });
-    }
-  }
-
-  // DIAGNOSTIC ONLY — walks TEXT nodes (cheap, no full-DOM element dump)
-  // looking for literal "Wrong Answer" text, then reports the containing
-  // element plus a few ancestor levels — tag, id, class, and every data-*
-  // /aria-* attribute — so we can find a stable hook without guessing.
-  function diagCollectAttrs(el) {
-    const out = {};
-    if (!el || !el.attributes) return out;
-    for (const attr of el.attributes) out[attr.name] = attr.value;
-    return out;
-  }
-
-  function diagDescribeChain(el, levels) {
-    const chain = [];
-    let cur = el;
-    for (let i = 0; i < levels && cur && cur.nodeType === Node.ELEMENT_NODE; i++) {
-      chain.push({
-        tagName: cur.tagName,
-        attrs: diagCollectAttrs(cur),
-        textPreview: (cur.textContent || '').trim().slice(0, 60),
-      });
-      cur = cur.parentElement;
-    }
-    return chain;
-  }
-
-  function diagFindWrongAnswerText(delay) {
-    const needle = 'Wrong Answer';
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    const seen = new Set();
-    let node;
-    let matches = 0;
-    while ((node = walker.nextNode()) && matches < 3) {
-      if (!node.textContent || !node.textContent.includes(needle)) continue;
-      const el = node.parentElement;
-      const key = el ? el.outerHTML.slice(0, 50) : node.textContent;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      matches++;
-      console.log(
-        `${LOG_PREFIX}[DIAG] +${delay}ms found "${needle}" — ancestor chain (leaf first):`,
-        diagDescribeChain(el, 4)
-      );
-    }
-    if (matches === 0) {
-      console.log(`${LOG_PREFIX}[DIAG] +${delay}ms "${needle}" not found anywhere in document.body`);
-    }
   }
 
   function pollForNavigation() {
-    if (location.href !== lastUrl) {
-      console.log(`${LOG_PREFIX} navigation detected:`, lastUrl, '->', location.href);
-      initForCurrentPage();
+    if (location.href === lastUrl) return;
+    const newSlug = getProblemSlug(location.href);
+    if (newSlug && newSlug === lastSlug) {
+      // Same problem, just an SPA sub-route change (e.g. into/out of a
+      // /submissions/<id>/ detail view) — don't tear down active result
+      // watchers or the idle timer over this, just track the new URL.
+      console.log(`${LOG_PREFIX} same-problem navigation (no reinit):`, lastUrl, '->', location.href);
+      lastUrl = location.href;
+      return;
     }
+    console.log(`${LOG_PREFIX} navigation detected:`, lastUrl, '->', location.href);
+    initForCurrentPage();
   }
 
   // Document-level click delegation is registered ONCE — it survives SPA
