@@ -1,6 +1,6 @@
 // question-bank.js — LeetCode Companion
 // Scope: deterministic technical-interview question bank, pattern detection,
-// and session-aware question selection.
+// session-aware question selection, and Gen Z tone mappings.
 // Supports: hashmap, two_pointers, binary_search, sliding_window, stack,
 // and generic interview-style fallback.
 // Triggers: on_run, on_submit, on_wrong.
@@ -141,6 +141,177 @@
       ],
     },
   };
+
+  // ---------------------------------------------------------------------
+  // 1b. Gen Z Question Tone Mappings
+  // Maps Professional questions to authentic Gen Z / casual SWE phrasing.
+  // ---------------------------------------------------------------------
+  const GEN_Z_MAP = {
+    // Hashmap
+    'Why did you choose a hashmap here instead of sorting or two pointers?':
+      "Yo, why'd you lock in on a hashmap here instead of sorting or two pointers? What's the play?",
+    'What is your key-value design, and does it guarantee constant-time lookups on average?':
+      "What's the key-value setup here, and does it highkey guarantee O(1) lookups on average?",
+    'How are you handling duplicate keys or collisions in your frequency mapping?':
+      "How are you handling duplicate keys or collisions in your frequency map so it doesn't fumble?",
+    'What invariant are you maintaining in the map as you iterate through the input?':
+      "What's the main rule/invariant you're keeping in the map while iterating through the input?",
+    'Walk me through the worst-case time and space complexity with this hashmap.':
+      'Okay lock in: walk me through the worst-case time and space complexity for this map.',
+    'Could this problem be solved with O(1) auxiliary space if the input were already sorted?':
+      'Could we get a total W and solve this in O(1) space if the input was already sorted?',
+    'How does your solution behave if the input contains a very high collision rate or duplicate values?':
+      'Is your solution cooked if the input has a highkey massive collision rate or duplicate values?',
+    'What are the trade-offs between using a hash table versus an array-based lookup table here?':
+      'What are the trade-offs between a hash table vs a simple array lookup here?',
+    'What assumption about key uniqueness or default values might have caused this incorrect output?':
+      'Plot twist: what assumption about key uniqueness or defaults lowkey cooked this output?',
+    'Did you update the hashmap before or after checking for the complement or existing entry?':
+      'Did you update the map before or after checking for the target entry? Order matters bro!',
+    'Could an edge case like empty input, single elements, or negative keys break your lookup logic?':
+      'Could an edge case like empty input, single elements, or negative keys fumble your lookup?',
+    'Are you accidentally overwriting values when duplicate elements appear in the input?':
+      'Are you accidentally overwriting map values when duplicate elements drop in?',
+
+    // Two Pointers
+    'What invariant makes your two-pointer approach correct as the pointers move?':
+      "What's the main invariant keeping your two pointers on track as they move?",
+    'Under what condition do you advance each pointer, and can they ever cross unexpectedly?':
+      'When do you move each pointer, and can they ever cross and fumble the logic?',
+    "Why does moving one pointer guarantee you don't miss a potential optimal pair?":
+      "Why are you confident that moving one pointer won't miss the optimal pair?",
+    'Is the input required to be sorted for this two-pointer strategy to remain valid?':
+      'Does the input highkey need to be sorted for this two-pointer strat to work?',
+    'Walk me through why this two-pointer traversal is strictly O(N) time.':
+      'Lock in: walk me through why this two-pointer run is strictly O(N) time.',
+    'How would you defend the correctness of your termination condition in a formal proof?':
+      "How do you prove your loop termination condition isn't going to get cooked?",
+    'Are there boundary cases where both pointers meet at the same element that need special handling?':
+      'What happens when both pointers meet at the exact same element? Edge case alert!',
+    'Could this approach be extended to three or four pointers, and what would the complexity trade-off be?':
+      'Could we scale this to 3 or 4 pointers, or would the complexity be an L?',
+    'Did an off-by-one error or premature pointer termination cause you to skip the target state?':
+      'Did an off-by-one error lowkey make you skip the winning state?',
+    'Which pointer update assumption broke on this failing test case?':
+      'Which pointer update assumption got cooked on this test case?',
+    'Are you handling duplicates properly when advancing your left and right pointers?':
+      'Are you handling duplicates right when moving left and right pointers, or did it fumble?',
+    'Did your loop condition (< vs <=) terminate before evaluating the final valid element pair?':
+      'Did your loop condition (< vs <=) end early before checking the final pair?',
+
+    // Binary Search
+    'Why is this binary-search boundary update safe against infinite loops?':
+      'Hear me out: why is this binary search boundary update safe from getting cooked in an infinite loop?',
+    'What monotonic property or predicate allows you to discard half the search space at each step?':
+      'What monotonic rule lets you discard half the search space at every step?',
+    'How did you decide between using left < right versus left <= right for your search loop?':
+      "How'd you choose between left < right vs left <= right for the loop condition?",
+    'How do you prevent integer overflow when calculating the midpoint?':
+      'How are you preventing integer overflow when computing the mid value?',
+    'Walk me through why this search space reduction guarantees O(log N) time.':
+      'Okay lock in: explain why cutting the search space in half guarantees O(log N) runtime.',
+    'When the loop terminates, what does the position of left or right represent?':
+      'When the loop ends, what does the final position of left or right actually mean?',
+    'How does your binary search handle duplicates when searching for the first or last occurrence?':
+      'How does your search handle duplicate elements when looking for first/last position?',
+    'Could this search space be framed as a binary search on the answer range rather than array indices?':
+      'Could we binary search on the answer range here instead of array indices?',
+    'Did your midpoint calculation or boundary adjustment skip over the target value?':
+      'Did your mid calculation or boundary update lowkey skip right past the target?',
+    'Did you test extreme edge cases: empty array, single element, or target outside the range?':
+      'Did you check extreme edge cases like single elements or target out of bounds?',
+    'Did the search loop terminate one iteration too early or get stuck in an off-by-one loop?':
+      'Did the search loop end 1 step too early or get stuck in an off-by-one loop?',
+    'Is the monotonicity assumption violated by any part of this test input?':
+      'Is the monotonicity assumption violated on this specific test case?',
+
+    // Sliding Window
+    'What exact condition determines when your sliding window needs to shrink from the left?':
+      "Bro, what's the exact condition that tells your sliding window to shrink from the left?",
+    'What window invariant are you maintaining across each expansion and contraction step?':
+      'What window invariant are you maintaining as the window expands and shrinks?',
+    'Why does this sliding window approach guarantee finding the optimal substring or subarray?':
+      'Why are you sure this sliding window strat guarantees finding the optimal subarray?',
+    'Are you tracking window state incrementally in O(1) instead of recomputing on each shift?':
+      'Are you updating window state incrementally in O(1) instead of recomputing every shift?',
+    'Explain why your sliding window runs in O(N) amortized time even though there are nested loops.':
+      'Explain why this window runs in O(N) amortized time even with the inner loop.',
+    'What is the auxiliary space complexity of tracking characters or frequencies inside the window?':
+      "What's the extra space complexity of tracking element frequencies in the window?",
+    'How would your window logic adapt if the input stream were infinite or arrived in chunks?':
+      'How would your window logic adapt if the input arrived as an infinite stream?',
+    'Can the window ever become invalid (left pointer overtaking right pointer), and how is that handled?':
+      "Can left pointer ever overtake right pointer here, and how'd you handle that?",
+    'Did your left-boundary shrink condition fail to restore the valid window property on this input?':
+      'Did your left boundary shrink logic fail to fix the window state on this input?',
+    'Did you update the global result before or after shrinking the window?':
+      'Did you record the best result before or after shrinking the window? Order is huge!',
+    'How does your window handle an input where no valid window exists at all?':
+      'How does your code handle inputs where no valid window exists at all?',
+    'Did your window state get corrupted when removing the outgoing element at the left pointer?':
+      'Did your window state get corrupted when popping the left element out?',
+
+    // Stack
+    'Why is a stack the right abstraction here instead of a queue or simple counter?':
+      'Bro, why is a stack the right play here instead of a queue or simple counter?',
+    'What invariant does the stack maintain during iteration?':
+      "What's the core rule/invariant your stack maintains on every iteration?",
+    'What does each element on the stack represent: the actual value, an index, or both?':
+      'What is each element on the stack actually storing: value, index, or both?',
+    "How are you ensuring you don't perform an illegal pop on an empty stack?":
+      "How are you making sure you don't do an illegal pop on an empty stack?",
+    'Walk me through the amortized time complexity per element pushed and popped.':
+      'Lock in: walk me through the amortized time complexity for each push and pop.',
+    'What is the worst-case space complexity if the input is strictly increasing or decreasing?':
+      "What's the worst-case space complexity if the input is strictly sorted?",
+    'Could this stack-based solution be implemented with an explicit recursion or vice versa?':
+      'Could this stack solution be refactored into recursion, or is stack better?',
+    'How does your solution handle trailing unclosed elements left on the stack at the end of the input?':
+      'How do you handle leftover elements on the stack when the loop finishes?',
+    'Did your stack logic assume all matching pairs would be adjacent or properly ordered?':
+      'Did your stack logic assume matching pairs would always be in order?',
+    'What assumption about empty-stack behavior or leftover elements failed on this test case?':
+      'What assumption about empty stack behavior lowkey fumbled on this test case?',
+    'Did you pop an element when you should have only inspected top, or vice versa?':
+      'Did you pop an element when you should have just peeked at top, or vice versa?',
+    'Did a monotonic invariant break when processing equal or duplicate values?':
+      'Did your monotonic stack invariant break when equal/duplicate values dropped in?',
+
+    // Fallback
+    'Walk me through how your current logic processes a minimal edge case.':
+      'Walk me through how your logic processes a minimal edge case step by step.',
+    'What is the core state or invariant you are maintaining through each iteration?':
+      "What's the main state or invariant you're keeping alive through each iteration?",
+    'Why did you choose this approach over alternative data structures or algorithms?':
+      "Why'd you choose this approach over alternative data structures? What's the advantage?",
+    'What assumption about the input format or constraints are you relying on here?':
+      'What assumption about input constraints are you relying on here?',
+    'Walk me through the time and space complexity of this solution.':
+      'Lock in: walk me through the time and space complexity of this solution.',
+    'How would your solution perform if the input size scaled by a factor of 1000?':
+      'How does your solution scale if the input size gets 1000x bigger? Big O check!',
+    'What is the primary bottleneck in your approach, and could it be optimized further?':
+      "What's the main bottleneck here, and how could we optimize it further?",
+    'Are there trade-offs you made between code readability, memory usage, and runtime?':
+      'What trade-offs did you make between readability, space, and speed?',
+    'What assumption in your solution might be wrong for this failing test case?':
+      'Bro, what assumption in your solution lowkey failed on this test case?',
+    'Did you consider boundary cases such as empty inputs, negative numbers, or duplicates?':
+      'Did you check boundary cases like empty inputs, negative values, or duplicates?',
+    'Where does the actual output diverge from the expected output when stepping through your logic?':
+      'Where exactly does your output diverge from expected when stepping through?',
+    'Did an off-by-one condition or unhandled edge case cause this failure?':
+      'Did an off-by-one condition or unhandled edge case cause this L?',
+  };
+
+  function getGenZQuestion(proQuestion) {
+    if (!proQuestion || typeof proQuestion !== 'string') return proQuestion;
+    if (GEN_Z_MAP[proQuestion]) {
+      return GEN_Z_MAP[proQuestion];
+    }
+    // Clean fallback for custom/unknown questions
+    return `Bro, ${proQuestion.charAt(0).toLowerCase() + proQuestion.slice(1)}`;
+  }
 
   // ---------------------------------------------------------------------
   // 2. Pattern Detection
@@ -333,6 +504,8 @@
   // ---------------------------------------------------------------------
   const QuestionBank = {
     QUESTION_BANK,
+    GEN_Z_MAP,
+    getGenZQuestion,
     detectPattern,
     detectPatternFromCode,
     detectPatternFromDom,
