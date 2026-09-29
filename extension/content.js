@@ -35,10 +35,21 @@
     'Compile Error',
   ];
 
+  function getQuestionBank() {
+    if (typeof window !== 'undefined' && window.__lcQuestionBank) {
+      return window.__lcQuestionBank;
+    }
+    if (typeof globalThis !== 'undefined' && globalThis.__lcQuestionBank) {
+      return globalThis.__lcQuestionBank;
+    }
+    return null;
+  }
+
   // Per-"problem session" state. Reset on SPA navigation.
   let state = null;
 
   function freshState() {
+    const qb = getQuestionBank();
     return {
       lastEditAt: Date.now(),
       idleFired: false,
@@ -46,6 +57,7 @@
       lastResultAt: 0,
       observers: [], // MutationObservers to disconnect on nav
       idleIntervalId: null,
+      questionSession: qb && qb.createSession ? qb.createSession() : null,
     };
   }
 
@@ -88,9 +100,34 @@
       if (!action) return;
       console.log(`${LOG_PREFIX} ${action.toUpperCase()} clicked`);
       checkEditorState(); // was manual-only before; now fires on every click
+      handleQuestionTrigger(action === 'run' ? 'on_run' : 'on_submit');
       watchForResult(action);
     } catch (err) {
       console.warn(`${LOG_PREFIX} click handler error:`, err);
+    }
+  }
+
+  async function handleQuestionTrigger(trigger) {
+    if (!state) return;
+    const session = state.questionSession;
+    try {
+      const { code } = await getCurrentCode();
+      const slug = getProblemSlug(location.href);
+      const qb = getQuestionBank();
+      if (!qb) return;
+      const pattern = qb.detectPattern({ code, slug, document });
+      const question = qb.selectQuestion({
+        trigger,
+        pattern,
+        session,
+      });
+      if (question) {
+        console.log(
+          `${LOG_PREFIX} question (${trigger}, ${pattern || 'fallback'}): ${question}`
+        );
+      }
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} error selecting question:`, err);
     }
   }
 
@@ -131,6 +168,9 @@
       state.lastResult = text;
       state.lastResultAt = now;
       console.log(`${LOG_PREFIX} RESULT (${triggerAction}):`, text);
+      if (text.startsWith('Wrong Answer')) {
+        handleQuestionTrigger('on_wrong');
+      }
       return true;
     }
 
@@ -296,6 +336,25 @@
   };
   // Exposed for manual console testing right now:
   window.__lcCompanion.debugCheckEditor = checkEditorState;
+  window.__lcCompanion.triggerQuestion = handleQuestionTrigger;
+  window.__lcCompanion.selectQuestion = function (trigger, pattern) {
+    const qb = getQuestionBank();
+    if (!qb) return null;
+    return qb.selectQuestion({
+      trigger,
+      pattern,
+      session: state ? state.questionSession : null,
+    });
+  };
+  window.__lcCompanion.detectPattern = function (codeOverride) {
+    const qb = getQuestionBank();
+    if (!qb) return null;
+    return qb.detectPattern({
+      code: codeOverride !== undefined ? codeOverride : null,
+      slug: getProblemSlug(location.href),
+      document,
+    });
+  };
 
   // ---------------------------------------------------------------------
   // Init / SPA navigation handling
