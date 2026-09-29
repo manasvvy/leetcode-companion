@@ -1,8 +1,7 @@
-// content.js — LeetCode Companion (dev scaffold)
+// content.js — LeetCode Companion
 // Scope: page detection, Run/Submit click detection, result detection,
-// Monaco code reading + non-empty check, idle tracking (log only, no
-// prompt), and a minimal inert side panel. No storage, no backend, no LLM
-// calls in this file — that's intentional, per current task scope.
+// Monaco code reading + non-empty check, idle tracking, pattern detection,
+// question selection, and polished floating Companion Overlay UI.
 
 (function () {
   'use strict';
@@ -17,15 +16,9 @@
   const LOG_PREFIX = '[LC Companion]';
   const IDLE_THRESHOLD_MS = 60_000;
   const IDLE_CHECK_INTERVAL_MS = 5_000;
-  // Confirmed via live diagnostic (see conversation) — LeetCode marks these
-  // with stable data-e2e-locator attributes, independent of its obfuscated
-  // CSS-module classes.
   const SUBMIT_SELECTOR = '[data-e2e-locator="console-submit-button"]';
   const RESULT_SELECTOR = '[data-e2e-locator="submission-result"]';
   const RUN_SELECTOR = '[data-e2e-locator="console-run-button"]';
-  // Confirmed via live diagnostic: non-Accepted verdicts do NOT get the
-  // data-e2e-locator="submission-result" treatment — LeetCode renders them
-  // as a red-colored <h3> heading instead (see findRedVerdictElement below).
   const NON_ACCEPTED_VERDICTS = [
     'Wrong Answer',
     'Time Limit Exceeded',
@@ -34,6 +27,23 @@
     'Output Limit Exceeded',
     'Compile Error',
   ];
+
+  const TRIGGER_LABELS = {
+    on_run: 'Technical Round',
+    on_submit: '30-sec Defense',
+    on_wrong: 'Debug This',
+  };
+
+  // Global UI Overlay State
+  const uiState = {
+    mode: 'pro', // 'pro' | 'genz'
+    isMinimized: false,
+    isClosed: false,
+    currentQuestion: null, // Professional question string
+    currentTrigger: null,  // 'on_run' | 'on_submit' | 'on_wrong'
+    currentPattern: null,  // e.g. 'hashmap'
+    showingHint: false,
+  };
 
   function getQuestionBank() {
     if (typeof window !== 'undefined' && window.__lcQuestionBank) {
@@ -83,12 +93,7 @@
   // 2 & 3. Run/Submit click detection + result detection
   // ---------------------------------------------------------------------
   function findActionFromClick(target) {
-    // Submit — CONFIRMED via diagnostic: clicks land on an inner SVG, but
-    // the nearest data-e2e-locator element is stable regardless of which
-    // inner element was actually clicked.
     if (target.closest && target.closest(SUBMIT_SELECTOR)) return 'submit';
-    // Run — CONFIRMED via diagnostic: ariaLabel "Run", data-e2e-locator
-    // "console-run-button".
     if (target.closest && target.closest(RUN_SELECTOR)) return 'run';
     return null;
   }
@@ -99,7 +104,7 @@
       const action = findActionFromClick(e.target);
       if (!action) return;
       console.log(`${LOG_PREFIX} ${action.toUpperCase()} clicked`);
-      checkEditorState(); // was manual-only before; now fires on every click
+      checkEditorState();
       handleQuestionTrigger(action === 'run' ? 'on_run' : 'on_submit');
       watchForResult(action);
     } catch (err) {
@@ -125,18 +130,19 @@
         console.log(
           `${LOG_PREFIX} question (${trigger}, ${pattern || 'fallback'}): ${question}`
         );
+        uiState.currentQuestion = question;
+        uiState.currentTrigger = trigger;
+        uiState.currentPattern = pattern || 'fallback';
+        uiState.showingHint = false;
+        uiState.isClosed = false;
+        uiState.isMinimized = false;
+        renderOverlay();
       }
     } catch (err) {
       console.warn(`${LOG_PREFIX} error selecting question:`, err);
     }
   }
 
-  // Non-Accepted verdicts (Wrong Answer, TLE, etc.) render as a red <h3>
-  // heading instead of the data-e2e-locator span — confirmed via live
-  // diagnostic. Matching on tag + a semantic color class (rather than the
-  // full Tailwind class string, which is brittle across theme/build
-  // changes) plus requiring the text to start with a known verdict keeps
-  // this narrow enough not to match an unrelated heading elsewhere.
   function findRedVerdictElement() {
     const headings = document.querySelectorAll('h3');
     for (const h of headings) {
@@ -148,22 +154,14 @@
     return null;
   }
 
-  // After a Run/Submit, watch for the result. Two independent DOM shapes
-  // are checked, confirmed via live diagnostic: Accepted uses
-  // `<span data-e2e-locator="submission-result">`, while every other
-  // verdict uses a red `<h3>` heading with no such locator at all — an
-  // asymmetry in LeetCode's own markup, not something fixable with one
-  // selector. Either element may already exist (stale from a previous run)
-  // or get inserted fresh, so on any DOM change we just re-check both.
   function watchForResult(triggerAction) {
-    const deadline = Date.now() + 30_000; // stop watching after 30s
+    const deadline = Date.now() + 30_000;
 
     function reportIfPresent() {
       const successEl = document.querySelector(RESULT_SELECTOR);
       const text = successEl ? (successEl.textContent || '').trim() : findRedVerdictElement();
       if (!text) return false;
       const now = Date.now();
-      // de-dupe: ignore repeat firing for the same result within 2s
       if (state.lastResult === text && now - state.lastResultAt < 2000) return false;
       state.lastResult = text;
       state.lastResultAt = now;
@@ -187,27 +185,18 @@
       characterData: true,
     });
     state.observers.push(observer);
-    reportIfPresent(); // in case the element already has the answer
+    reportIfPresent();
   }
 
   // ---------------------------------------------------------------------
   // 5. Reading Monaco's current code
   // ---------------------------------------------------------------------
-  // Content scripts run in an isolated JS world: they share the page's DOM
-  // but NOT its JS globals, so `window.monaco` is invisible here even
-  // though it exists on the page. We inject page-bridge.js into the page's
-  // own context and talk to it via CustomEvents on `document` (the DOM is
-  // shared, so this works across the world boundary). If that fails for
-  // any reason (monaco not global, no models, etc.) we fall back to
-  // scraping Monaco's own — stable, library-owned — `.view-lines` DOM.
-  // Note: the fallback only sees currently-rendered (viewport) lines,
-  // since Monaco virtualizes long files.
   function injectPageBridge() {
     if (document.getElementById('lc-companion-bridge')) return;
     const script = document.createElement('script');
     script.id = 'lc-companion-bridge';
     script.src = chrome.runtime.getURL('page-bridge.js');
-    script.onload = () => script.remove(); // no need to keep the tag around
+    script.onload = () => script.remove();
     (document.head || document.documentElement).appendChild(script);
   }
 
@@ -237,8 +226,6 @@
         document.querySelectorAll('.monaco-editor .view-lines .view-line')
       );
       if (lines.length === 0) return null;
-      // Monaco absolutely-positions each rendered line via inline `top`;
-      // sort by that to reconstruct line order.
       lines.sort(
         (a, b) => parseFloat(a.style.top || '0') - parseFloat(b.style.top || '0')
       );
@@ -259,7 +246,7 @@
   }
 
   // ---------------------------------------------------------------------
-  // 6. Non-empty check — exposed for manual console testing
+  // 6. Non-empty check
   // ---------------------------------------------------------------------
   async function checkEditorState() {
     const { code, source } = await getCurrentCode();
@@ -273,7 +260,7 @@
   }
 
   // ---------------------------------------------------------------------
-  // 7. Idle tracking (detection only — no prompt shown yet)
+  // 7. Idle tracking
   // ---------------------------------------------------------------------
   function attachIdleTracking() {
     const markActive = () => {
@@ -284,8 +271,6 @@
         console.log(`${LOG_PREFIX} editor active again (idle cleared)`);
       }
     };
-    // Monaco's own textarea class ('.inputarea') is library-owned, not
-    // LeetCode-specific, so this is a stable hook.
     document.addEventListener(
       'keydown',
       (e) => {
@@ -307,34 +292,193 @@
   }
 
   // ---------------------------------------------------------------------
-  // 8. Minimal side panel
+  // 8. Companion Overlay UI Rendering
   // ---------------------------------------------------------------------
-  function ensurePanel() {
+  function ensureOverlayElements() {
     let panel = document.getElementById('lc-companion-panel');
-    if (panel) return panel;
-    panel = document.createElement('div');
-    panel.id = 'lc-companion-panel';
-    panel.style.display = 'none';
-    panel.innerHTML =
-      '<div id="lc-companion-panel-header">🧠 Companion</div>' +
-      '<div id="lc-companion-panel-body"></div>';
-    document.body.appendChild(panel);
-    return panel;
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'lc-companion-panel';
+      panel.className = 'lc-companion-panel lc-companion-hidden';
+      document.body.appendChild(panel);
+    }
+
+    let badge = document.getElementById('lc-companion-minimized-badge');
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.id = 'lc-companion-minimized-badge';
+      badge.className = 'lc-companion-minimized-badge lc-companion-hidden';
+      badge.setAttribute('tabindex', '0');
+      badge.setAttribute('aria-label', 'Reopen LeetCode Companion');
+      badge.innerHTML =
+        '<span class="lc-companion-badge-icon">✦</span>' +
+        '<span>LC Companion</span>' +
+        '<span class="lc-companion-badge-dot"></span>';
+
+      const onBadgeClick = () => {
+        uiState.isMinimized = false;
+        renderOverlay();
+      };
+      badge.addEventListener('click', onBadgeClick);
+      badge.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onBadgeClick();
+        }
+      });
+      document.body.appendChild(badge);
+    }
+
+    return { panel, badge };
   }
 
-  // Public-ish API for later steps to call. Question bank / LLM calls are
-  // NOT implemented here — this just proves the panel can display text.
+  function renderOverlay() {
+    const { panel, badge } = ensureOverlayElements();
+
+    if (uiState.isClosed || !uiState.currentQuestion) {
+      panel.classList.add('lc-companion-hidden');
+      badge.classList.add('lc-companion-hidden');
+      panel.style.display = 'none';
+      badge.style.display = 'none';
+      return;
+    }
+
+    if (uiState.isMinimized) {
+      panel.classList.add('lc-companion-hidden');
+      panel.style.display = 'none';
+      badge.classList.remove('lc-companion-hidden');
+      badge.style.display = 'flex';
+      return;
+    }
+
+    // Expanded view
+    badge.classList.add('lc-companion-hidden');
+    badge.style.display = 'none';
+    panel.classList.remove('lc-companion-hidden');
+    panel.style.display = 'block';
+
+    const qb = getQuestionBank();
+    const isGenZ = uiState.mode === 'genz';
+    const displayText = isGenZ && qb && qb.getGenZQuestion
+      ? qb.getGenZQuestion(uiState.currentQuestion)
+      : uiState.currentQuestion;
+
+    const triggerLabel = TRIGGER_LABELS[uiState.currentTrigger] || 'Technical Question';
+    const patternTag = (uiState.currentPattern || 'general').replace('_', ' ');
+
+    panel.innerHTML = `
+      <div class="lc-companion-header">
+        <div class="lc-companion-title">
+          <span class="lc-companion-title-icon">✦</span>
+          <span>LC Companion</span>
+        </div>
+        <div class="lc-companion-header-right">
+          <div class="lc-companion-mode-toggle" role="group" aria-label="Tone mode toggle">
+            <button type="button" class="lc-companion-toggle-btn ${!isGenZ ? 'lc-companion-toggle-btn-active' : ''}" data-mode="pro" aria-label="Professional tone mode">PRO</button>
+            <button type="button" class="lc-companion-toggle-btn ${isGenZ ? 'lc-companion-toggle-btn-active' : ''}" data-mode="genz" aria-label="Gen Z tone mode">GEN Z</button>
+          </div>
+          <button type="button" class="lc-companion-control-btn lc-companion-btn-minimize" aria-label="Minimize Companion" title="Minimize">−</button>
+          <button type="button" class="lc-companion-control-btn lc-companion-btn-close" aria-label="Close Companion" title="Close">×</button>
+        </div>
+      </div>
+      <div class="lc-companion-body">
+        <div class="lc-companion-badges">
+          <span class="lc-companion-badge">${escapeHtml(triggerLabel)}</span>
+          <span class="lc-companion-pattern-tag">${escapeHtml(patternTag)}</span>
+        </div>
+        <p class="lc-companion-question-text">${escapeHtml(displayText)}</p>
+        ${
+          uiState.showingHint
+            ? `<div class="lc-companion-hint-box">💡 Hint: Take a step back and trace your variable invariants step by step!</div>`
+            : ''
+        }
+        <div class="lc-companion-actions">
+          <button type="button" class="lc-companion-btn lc-companion-btn-secondary lc-companion-action-hint">${uiState.showingHint ? 'Hide Hint' : "I don't know"}</button>
+          <button type="button" class="lc-companion-btn lc-companion-btn-primary lc-companion-action-gotit">Got it</button>
+        </div>
+      </div>
+    `;
+
+    // Bind event listeners inside panel
+    const toggleBtns = panel.querySelectorAll('.lc-companion-toggle-btn');
+    toggleBtns.forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        const mode = e.currentTarget.getAttribute('data-mode');
+        if (mode && uiState.mode !== mode) {
+          uiState.mode = mode;
+          renderOverlay();
+        }
+      });
+    });
+
+    const minimizeBtn = panel.querySelector('.lc-companion-btn-minimize');
+    if (minimizeBtn) {
+      minimizeBtn.addEventListener('click', () => {
+        uiState.isMinimized = true;
+        renderOverlay();
+      });
+    }
+
+    const closeBtn = panel.querySelector('.lc-companion-btn-close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        uiState.isClosed = true;
+        renderOverlay();
+      });
+    }
+
+    const hintBtn = panel.querySelector('.lc-companion-action-hint');
+    if (hintBtn) {
+      hintBtn.addEventListener('click', () => {
+        uiState.showingHint = !uiState.showingHint;
+        renderOverlay();
+      });
+    }
+
+    const gotItBtn = panel.querySelector('.lc-companion-action-gotit');
+    if (gotItBtn) {
+      gotItBtn.addEventListener('click', () => {
+        uiState.isMinimized = true;
+        renderOverlay();
+      });
+    }
+  }
+
+  function escapeHtml(str) {
+    if (typeof str !== 'string') return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  // Public API
   window.__lcCompanion = window.__lcCompanion || {};
   window.__lcCompanion.showQuestion = function showQuestion(text) {
-    const panel = ensurePanel();
-    panel.querySelector('#lc-companion-panel-body').textContent = text;
-    panel.style.display = 'block';
+    uiState.currentQuestion = text;
+    uiState.currentTrigger = uiState.currentTrigger || 'on_run';
+    uiState.currentPattern = uiState.currentPattern || 'fallback';
+    uiState.showingHint = false;
+    uiState.isClosed = false;
+    uiState.isMinimized = false;
+    renderOverlay();
   };
   window.__lcCompanion.hide = function hide() {
-    const panel = document.getElementById('lc-companion-panel');
-    if (panel) panel.style.display = 'none';
+    uiState.isClosed = true;
+    renderOverlay();
   };
-  // Exposed for manual console testing right now:
+  window.__lcCompanion.setMode = function setMode(mode) {
+    if (mode === 'pro' || mode === 'genz') {
+      uiState.mode = mode;
+      renderOverlay();
+    }
+  };
+  window.__lcCompanion.toggleMinimize = function toggleMinimize() {
+    uiState.isMinimized = !uiState.isMinimized;
+    renderOverlay();
+  };
   window.__lcCompanion.debugCheckEditor = checkEditorState;
   window.__lcCompanion.triggerQuestion = handleQuestionTrigger;
   window.__lcCompanion.selectQuestion = function (trigger, pattern) {
@@ -357,21 +501,8 @@
   };
 
   // ---------------------------------------------------------------------
-  // Init / SPA navigation handling
+  // Init / SPA Navigation
   // ---------------------------------------------------------------------
-  // LeetCode is a client-routed SPA — plain page loads won't fire between
-  // problems, so `document_idle` alone isn't enough. We poll location.href
-  // (cheapest reliable option without hooking the app's own router).
-  //
-  // CONFIRMED via live diagnostic: submitting navigates the URL from
-  // /problems/<slug>/ to /problems/<slug>/submissions/<id>/ — a sub-route
-  // of the SAME problem, not a new one. Comparing full href (as before)
-  // treated that as "new page" and tore down the in-flight result
-  // observer before it could fire, which is exactly why Wrong Answer
-  // (whose heavier render loses the race against our 1s poll) was being
-  // missed while faster-rendering Accepted sometimes wasn't. Comparing the
-  // problem *slug* instead means we only reinit when the problem actually
-  // changes, letting the result observer/idle timer survive that nav.
   let lastUrl = null;
   let lastSlug = null;
 
@@ -385,24 +516,30 @@
     if (!isProblemPage()) {
       console.log(`${LOG_PREFIX} not a problem page, idling`);
       lastSlug = null;
+      uiState.currentQuestion = null;
+      renderOverlay();
       return;
     }
     lastUrl = location.href;
     lastSlug = getProblemSlug(location.href);
     state = freshState();
+
+    // Reset question state on NEW problem page navigation
+    uiState.currentQuestion = null;
+    uiState.showingHint = false;
+    uiState.isClosed = false;
+    uiState.isMinimized = false;
+
     console.log(`${LOG_PREFIX} initialized for`, location.href);
     injectPageBridge();
     attachIdleTracking();
-    ensurePanel();
+    renderOverlay();
   }
 
   function pollForNavigation() {
     if (location.href === lastUrl) return;
     const newSlug = getProblemSlug(location.href);
     if (newSlug && newSlug === lastSlug) {
-      // Same problem, just an SPA sub-route change (e.g. into/out of a
-      // /submissions/<id>/ detail view) — don't tear down active result
-      // watchers or the idle timer over this, just track the new URL.
       console.log(`${LOG_PREFIX} same-problem navigation (no reinit):`, lastUrl, '->', location.href);
       lastUrl = location.href;
       return;
@@ -411,10 +548,7 @@
     initForCurrentPage();
   }
 
-  // Document-level click delegation is registered ONCE — it survives SPA
-  // navigation since `document` itself is never replaced.
   document.addEventListener('click', onDocumentClick, true);
-
   window.addEventListener('popstate', pollForNavigation);
   setInterval(pollForNavigation, 1000);
 
