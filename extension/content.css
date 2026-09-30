@@ -273,3 +273,90 @@
   border-radius: 50%;
   background-color: #22c55e;
 }
+
+/* ---------------------------------------------------------------------
+   5. PR #4 — Answer Interaction Styles
+   --------------------------------------------------------------------- */
+
+/* Label above the textarea or the submitted-answer display */
+.lc-companion-answer-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+
+/* Answer input form wrapper (removes default form margin) */
+.lc-companion-answer-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+
+/* Multiline answer textarea */
+.lc-companion-answer-textarea {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #f4f4f5;
+  background-color: #09090b;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  padding: 7px 9px;
+  resize: vertical;
+  width: 100%;
+  min-height: 64px;
+  max-height: 140px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+.lc-companion-answer-textarea::placeholder {
+  color: #52525b;
+}
+
+.lc-companion-answer-textarea:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+/* Submitted-answer section wrapper */
+.lc-companion-answer-submitted {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Read-only display of the user's submitted answer */
+.lc-companion-answer-display {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #d4d4d8;
+  background-color: #09090b;
+  border: 1px solid #27272a;
+  border-radius: 6px;
+  padding: 7px 9px;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+/* Acknowledgment message after submission */
+.lc-companion-ack-box {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background-color: #1c1917;
+  border-left: 3px solid #4f46e5;
+  color: #a5b4fc;
+  font-size: 12px;
+  line-height: 1.4;
+  font-style: italic;
+}
+
+/* Actions row in the submitted state — spread across the row */
+.lc-companion-actions-submitted {
+  justify-content: space-between;
+}
